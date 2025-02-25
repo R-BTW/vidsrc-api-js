@@ -1,5 +1,6 @@
   import fetch from 'node-fetch';
 import { languageMap } from './languages.js';
+import HttpProxyAgent from 'http-proxy-agent'; // Import the proxy agent
 
 export async function getEmbedSu(tmdb_id, s, e) {
   const DOMAIN = "https://embed.su";
@@ -9,9 +10,31 @@ export async function getEmbedSu(tmdb_id, s, e) {
     'Origin': DOMAIN,
   };
 
+  // Proxy list (use the proxies you provided, simplified here)
+  const proxies = [
+    { ip: "223.242.222.175", port: "1080", protocol: "http" }, // China, Hefei
+    { ip: "23.82.137.162", port: "80", protocol: "http" },     // US, Miami
+    { ip: "120.28.139.29", port: "8081", protocol: "http" },   // Philippines, Caloocan City
+    { ip: "94.249.220.135", port: "49200", protocol: "http" }, // Germany, Bad Homburg
+    // Add the remaining proxies from your list here (you provided 22 total)
+  ];
+
+  // Function to select a proxy (e.g., round-robin or random)
+  function selectProxy() {
+    const proxy = proxies[Math.floor(Math.random() * proxies.length)];
+    return `${proxy.protocol}://${proxy.ip}:${proxy.port}`;
+  }
+
   try {
+    const proxyUrl = selectProxy();
+    const proxyAgent = new HttpProxyAgent(proxyUrl); // Create proxy agent
+
     const urlSearch = s && e ? `${DOMAIN}/embed/tv/${tmdb_id}/${s}/${e}` : `${DOMAIN}/embed/movie/${tmdb_id}`;
-    const htmlSearch = await fetch(urlSearch, { method: 'GET', headers });
+    const htmlSearch = await fetch(urlSearch, { 
+      method: 'GET', 
+      headers, 
+      agent: proxyAgent // Use proxy agent for this request
+    });
     const textSearch = await htmlSearch.text();
 
     const hashEncodeMatch = textSearch.match(/JSON\.parse\(atob\(\`([^\`]+)/i);
@@ -39,7 +62,7 @@ export async function getEmbedSu(tmdb_id, s, e) {
         "Referer": DOMAIN,
         "User-Agent": headers['User-Agent'],
         "Accept": "*/*"
-      });
+      }, proxyAgent); // Pass proxy agent to requestGet
 
       if (!dataDirect.source) continue;
 
@@ -48,7 +71,7 @@ export async function getEmbedSu(tmdb_id, s, e) {
         lang: languageMap[sub.label.split(' ')[0]] || sub.label
       })).filter(track => track.lang);
 
-      const requestDirectSize = await fetch(dataDirect.source, { headers, method: "GET" });
+      const requestDirectSize = await fetch(dataDirect.source, { headers, method: "GET", agent: proxyAgent }); // Use proxy for this fetch
       const parseRequest = await requestDirectSize.text();
 
       const patternSize = parseRequest.split('\n').filter(item => item.includes('/proxy/'));
@@ -80,6 +103,7 @@ export async function getEmbedSu(tmdb_id, s, e) {
       subtitles
     };
   } catch (e) {
+    console.error("Error in getEmbedSu:", e);
     return { provider: "EmbedSu", sources: [], subtitles: [] };
   }
 }
@@ -108,9 +132,13 @@ async function stringAtob(input) {
   return output;
 }
 
-async function requestGet(url, headers = {}) {
+async function requestGet(url, headers = {}, proxyAgent) {
   try {
-    const response = await fetch(url, { method: 'GET', headers });
+    const response = await fetch(url, { 
+      method: 'GET', 
+      headers, 
+      agent: proxyAgent // Use proxy agent for this request
+    });
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -118,6 +146,7 @@ async function requestGet(url, headers = {}) {
 
     return await response.json();
   } catch (error) {
+    console.error("Error in requestGet:", error);
     return "";
   }
 }
